@@ -142,10 +142,11 @@ export function URLInput({ onAddDownloads }: URLInputProps) {
         <div className="p-6">
           {/* Single URL Tab */}
           <TabsContent value="single" className="space-y-4">
-            <div className="flex gap-2 mb-4">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch">
               <Input
                 placeholder="Paste video URL here... (YouTube, TikTok, Instagram...)"
                 value={singleUrl}
+                className="h-11 flex-1"
                 onChange={(e) => {
                   setSingleUrl(e.target.value)
                   setDetectedPlatform(null)
@@ -161,21 +162,22 @@ export function URLInput({ onAddDownloads }: URLInputProps) {
                 variant="ghost"
                 onClick={handlePasteClick}
                 title="Paste from clipboard"
+                className="h-11 w-11 shrink-0"
               >
                 <Clipboard className="w-5 h-5" />
               </Button>
               <Button
                 onClick={handleDetect}
                 disabled={!singleUrl || isLoading}
-                className="px-6"
+                className="h-11 shrink-0 px-5"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Detecting...
+                    Fetching...
                   </>
                 ) : (
-                  "Detect & Fetch"
+                  "Fetch"
                 )}
               </Button>
             </div>
@@ -206,7 +208,7 @@ export function URLInput({ onAddDownloads }: URLInputProps) {
             {detectedPlatform && (
               <Button
                 onClick={handleDownloadNow}
-                className="w-full"
+                className="h-11 w-full"
                 size="lg"
               >
                 Download Now

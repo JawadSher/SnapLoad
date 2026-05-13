@@ -6,75 +6,87 @@ import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
 
+const navItems = [
+  { href: "#how-it-works", label: "How it Works" },
+  { href: "#platforms", label: "Platforms" },
+  { href: "#faq", label: "FAQ" },
+]
+
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
-    <nav className="fixed top-0 w-full z-50 border-b border-zinc-800 bg-zinc-950/80 shadow-sm backdrop-blur-md">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 text-white font-bold text-xl hover:text-indigo-400 transition-colors">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600/10 ring-1 ring-indigo-500/20">
-            <Download className="w-5 h-5 text-indigo-600" />
-          </span>
-          SnapLoad
-        </Link>
-
-        {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center gap-1">
-          <Link href="/" className="inline-flex items-center justify-center rounded-lg font-medium transition-colors px-4 py-2 text-base text-white hover:bg-white/10">
-            Home
-          </Link>
-          <a href="#how-it-works" className="inline-flex items-center justify-center rounded-lg font-medium transition-colors px-4 py-2 text-base text-white hover:bg-white/10">
-            How it Works
-          </a>
-          <a href="#platforms" className="inline-flex items-center justify-center rounded-lg font-medium transition-colors px-4 py-2 text-base text-white hover:bg-white/10">
-            Supported Sites
-          </a>
-          <a href="#faq" className="inline-flex items-center justify-center rounded-lg font-medium transition-colors px-4 py-2 text-base text-white hover:bg-white/10">
-            Blog
-          </a>
-        </div>
-
-        {/* Desktop CTA */}
-        <div className="hidden md:flex items-center gap-2">
-          <ThemeToggle />
-          <Button variant="solid" size="md">Go Premium</Button>
-        </div>
-
-        <div className="flex items-center gap-2 md:hidden">
-          <ThemeToggle />
-          {/* Mobile Menu Button */}
-          <button
-            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 text-white hover:bg-white/10"
-            onClick={() => setIsOpen(!isOpen)}
-            aria-label="Toggle navigation"
+    <header className="fixed top-0 z-50 w-full px-3 pt-3">
+      <div className="mx-auto max-w-6xl rounded-2xl border border-zinc-800/80 bg-[var(--surface)]/90 shadow-sm backdrop-blur-xl">
+        <div className="flex h-16 items-center justify-between gap-3 px-4">
+          <Link
+            href="/"
+            className="group flex items-center gap-3 text-xl font-bold text-[var(--foreground)] transition-colors hover:text-indigo-500"
           >
-            {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
+            <span className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-indigo-600 to-sky-500 text-white shadow-sm shadow-indigo-500/20">
+              <span className="absolute inset-0 bg-white/10 opacity-0 transition-opacity group-hover:opacity-100" />
+              <Download className="relative h-5 w-5" />
+            </span>
+            <span className="hidden sm:block">
+              SnapLoad
+              <span className="ml-2 align-middle text-xs font-medium uppercase tracking-[0.24em] text-zinc-500">
+                media tools
+              </span>
+            </span>
+          </Link>
 
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-2">
-            <Link href="/" className="block px-4 py-2 text-white hover:bg-white/10 rounded-lg transition-colors">
-              Home
-            </Link>
-            <a href="#how-it-works" className="block px-4 py-2 text-white hover:bg-white/10 rounded-lg transition-colors">
-              How it Works
-            </a>
-            <a href="#platforms" className="block px-4 py-2 text-white hover:bg-white/10 rounded-lg transition-colors">
-              Supported Sites
-            </a>
-            <a href="#faq" className="block px-4 py-2 text-white hover:bg-white/10 rounded-lg transition-colors">
-              Blog
-            </a>
-            <Button variant="solid" size="md" className="mt-2">Go Premium</Button>
+          <nav className="hidden items-center gap-1 rounded-full border border-zinc-800 bg-[var(--surface-soft)] px-2 py-1 md:flex">
+            {navItems.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-full px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/70 hover:text-[var(--foreground)] dark:hover:bg-white/10"
+              >
+                {item.label}
+              </a>
+            ))}
+          </nav>
+
+          <div className="hidden items-center gap-2 md:flex">
+            <ThemeToggle />
+            <Button variant="solid" size="md" className="shadow-sm shadow-indigo-500/20">
+              Go Premium
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2 md:hidden">
+            <ThemeToggle />
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 text-[var(--foreground)] hover:bg-white/10"
+              onClick={() => setIsOpen(!isOpen)}
+              aria-label="Toggle navigation"
+            >
+              {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
           </div>
         </div>
-      )}
-    </nav>
+
+        {isOpen && (
+          <div className="border-t border-zinc-800 bg-[var(--surface)] px-4 py-4 md:hidden">
+            <div className="flex flex-col gap-2">
+              {navItems.map((item) => (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-xl px-4 py-3 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-white/10"
+                  onClick={() => setIsOpen(false)}
+                >
+                  {item.label}
+                </a>
+              ))}
+              <Button variant="solid" size="md" className="mt-2">
+                Go Premium
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </header>
   )
 }

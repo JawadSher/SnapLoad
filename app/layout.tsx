@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: "SnapLoad — Free Online Video Downloader",
   description:
     "Download videos from YouTube, TikTok, Instagram, Facebook, Twitter and 1000+ sites. Free, fast and easy.",
+  icons: {
+    icon: "/icon.svg",
+  },
 }
 
 export default function RootLayout({

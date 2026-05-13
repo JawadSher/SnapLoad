@@ -48,7 +48,7 @@ const platforms = [
   },
   {
     name: "LinkedIn",
-    src: "https://commons.wikimedia.org/wiki/Special:FilePath/LinkedIn%20logo%20initials.png",
+    src: "https://img.icons8.com/?size=100&id=8808&format=png&color=000000",
   },
 ]
 

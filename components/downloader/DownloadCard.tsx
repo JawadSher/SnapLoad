@@ -75,7 +75,16 @@ export function DownloadCard({
     <Card className="hover-lift overflow-hidden transition-all hover:border-indigo-500/50">
       <div className="flex flex-col gap-4 p-4 sm:flex-row">
         <div className="relative h-32 w-full flex-shrink-0 overflow-hidden rounded-lg bg-zinc-900 sm:h-20 sm:w-32">
-          <Image src={imageSrc} alt={item.title} fill unoptimized className="object-cover" />
+          <Image
+            src={imageSrc}
+            alt={item.title}
+            fill
+            unoptimized
+            loading="eager"
+            fetchPriority="high"
+            sizes="(min-width: 640px) 128px, 100vw"
+            className="object-cover"
+          />
         </div>
 
         <div className="min-w-0 flex-1">

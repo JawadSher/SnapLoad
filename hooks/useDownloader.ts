@@ -11,7 +11,6 @@ const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_SNAP
   .replace(/^['"]|['"]$/g, "")
 const COLD_START_MESSAGE_DELAY_MS = 3000
 const EXTRACT_TIMEOUT_MS = 75000
-const DOWNLOAD_PROGRESS_MS = 2200
 
 interface ExtractApiFormat {
   quality?: string
@@ -52,6 +51,26 @@ interface ExtractApiErrorBody {
 }
 
 type ExtractApiBody = ExtractApiSuccessBody | ExtractApiErrorBody
+
+interface WritableFileTarget {
+  write: (data: BufferSource | Blob | string) => Promise<void>
+  close: () => Promise<void>
+  abort?: () => Promise<void>
+}
+
+interface SaveFileHandle {
+  createWritable: () => Promise<WritableFileTarget>
+}
+
+type WindowWithFilePicker = Window & {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string
+    types?: Array<{
+      description: string
+      accept: Record<string, string[]>
+    }>
+  }) => Promise<SaveFileHandle>
+}
 
 export interface UseDownloaderReturn {
   url: string
@@ -146,6 +165,66 @@ function sanitizeFilename(title: string, format: Format): string {
     .replace(/\s+/g, " ")
     .slice(0, 120)
   return `${clean || fallback}.${extension}`
+}
+
+function getMimeType(format: Format): string {
+  switch (format.toLowerCase()) {
+    case "mp4":
+      return "video/mp4"
+    case "webm":
+      return "video/webm"
+    case "mkv":
+      return "video/x-matroska"
+    case "mp3":
+      return "audio/mpeg"
+    case "m4a":
+      return "audio/mp4"
+    case "aac":
+      return "audio/aac"
+    case "opus":
+      return "audio/opus"
+    default:
+      return "application/octet-stream"
+  }
+}
+
+async function pickSaveFile(filename: string, format: Format): Promise<SaveFileHandle | null> {
+  const picker = (window as WindowWithFilePicker).showSaveFilePicker
+  if (!picker) return null
+
+  return picker({
+    suggestedName: filename,
+    types: [
+      {
+        description: "Media file",
+        accept: {
+          [getMimeType(format)]: [`.${format.toLowerCase()}`],
+        },
+      },
+    ],
+  })
+}
+
+function getDownloadErrorMessage(response: Response, fallback: string): Promise<string> {
+  return response.text().then((text) => {
+    try {
+      const body = JSON.parse(text) as { error?: string }
+      return body.error || fallback
+    } catch {
+      return text || fallback
+    }
+  })
+}
+
+function saveBlob(filename: string, blob: Blob) {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }
 
 function normalizeFormats(formats: ExtractApiFormat[]): ExtractedFormat[] {
@@ -297,7 +376,7 @@ export function useDownloader(): UseDownloaderReturn {
       const platform = isPlatform(body.platform) ? body.platform : detected.platform
       const item: DownloadItem = {
         id: `download-${Date.now()}-${crypto.randomUUID()}`,
-        url: body.webpageUrl || body.originalUrl || trimmedUrl,
+        url: trimmedUrl,
         platform,
         title: body.title || `${detected.name} video`,
         thumbnail: body.thumbnail || "",
@@ -376,38 +455,92 @@ export function useDownloader(): UseDownloaderReturn {
 
     try {
       const filename = sanitizeFilename(item.title, item.format)
-      const a = document.createElement("a")
-      a.href = item.selectedFormatUrl
-      a.download = filename
-      a.target = "_blank"
-      a.rel = "noopener noreferrer"
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      const downloadUrl =
+        `/api/download?url=${encodeURIComponent(item.url)}` +
+        `&quality=${encodeURIComponent(item.quality)}` +
+        `&format=${encodeURIComponent(item.format)}` +
+        `&filename=${encodeURIComponent(filename)}`
+      const saveHandle = await pickSaveFile(filename, item.format)
+      const response = await fetch(downloadUrl, { cache: "no-store" })
 
-      const startedAt = Date.now()
-      const interval = window.setInterval(() => {
-        const elapsed = Date.now() - startedAt
-        const progress = Math.min(Math.round((elapsed / DOWNLOAD_PROGRESS_MS) * 100), 100)
+      if (!response.ok) {
+        throw new Error(await getDownloadErrorMessage(response, `Download failed with status ${response.status}`))
+      }
+
+      const contentLength = Number(response.headers.get("content-length") ?? 0)
+
+      if (!response.body) {
+        const blob = await response.blob()
+        if (saveHandle) {
+          const writable = await saveHandle.createWritable()
+          await writable.write(blob)
+          await writable.close()
+        } else {
+          saveBlob(filename, blob)
+        }
+
         setDownloads((current) =>
           current.map((download) =>
-            download.id === item.id
-              ? {
-                  ...download,
-                  progress,
-                  status: progress >= 100 ? "completed" : "downloading",
-                }
-              : download
+            download.id === item.id ? { ...download, progress: 100, status: "completed" } : download
           )
         )
+        return
+      }
 
-        if (progress >= 100) {
-          window.clearInterval(interval)
-          intervalsRef.current = intervalsRef.current.filter((id) => id !== interval)
+      const reader = response.body.getReader()
+      const writable = saveHandle ? await saveHandle.createWritable() : null
+      const chunks: BlobPart[] = []
+      let receivedLength = 0
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (!value) continue
+
+          if (writable) {
+            await writable.write(value)
+          } else {
+            chunks.push(new Uint8Array(value).buffer)
+          }
+
+          receivedLength += value.byteLength
+
+          const progress =
+            contentLength > 0
+              ? Math.min(Math.round((receivedLength / contentLength) * 100), 99)
+              : Math.min(Math.max(1, Math.round(receivedLength / 1024 / 1024)), 95)
+
+          setDownloads((current) =>
+            current.map((download) => (download.id === item.id ? { ...download, progress } : download))
+          )
         }
-      }, 100)
-      intervalsRef.current.push(interval)
+      } catch (streamError) {
+        if (writable?.abort) await writable.abort()
+        throw streamError
+      }
+
+      if (writable) {
+        await writable.close()
+      } else {
+        saveBlob(filename, new Blob(chunks, { type: response.headers.get("content-type") || getMimeType(item.format) }))
+      }
+
+      setDownloads((current) =>
+        current.map((download) =>
+          download.id === item.id ? { ...download, progress: 100, status: "completed" } : download
+        )
+      )
     } catch (downloadError) {
+      if (downloadError instanceof DOMException && downloadError.name === "AbortError") {
+        setDownloads((current) =>
+          current.map((download) =>
+            download.id === item.id ? { ...download, status: "ready", progress: 0, error: undefined } : download
+          )
+        )
+        return
+      }
+
       setDownloads((current) =>
         current.map((download) =>
           download.id === item.id
@@ -467,17 +600,21 @@ export function useDownloader(): UseDownloaderReturn {
   }, [])
 
   useEffect(() => {
-    if (!url.trim()) {
-      setDetectedPlatform(null)
-      return
-    }
+    const timeout = window.setTimeout(() => {
+      if (!url.trim()) {
+        setDetectedPlatform(null)
+        return
+      }
 
-    if (isValidURL(url)) {
-      setDetectedPlatform(detectPlatform(url))
-      setError(null)
-    } else {
-      setDetectedPlatform(null)
-    }
+      if (isValidURL(url)) {
+        setDetectedPlatform(detectPlatform(url))
+        setError(null)
+      } else {
+        setDetectedPlatform(null)
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [url])
 
   useEffect(() => {

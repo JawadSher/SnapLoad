@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { Download, Menu, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
 
@@ -49,9 +48,6 @@ export function Navbar() {
 
           <div className="hidden items-center gap-2 md:flex">
             <ThemeToggle />
-            <Button variant="solid" size="md" className="shadow-sm shadow-indigo-500/20">
-              Go Premium
-            </Button>
           </div>
 
           <div className="flex items-center gap-2 md:hidden">
@@ -80,9 +76,6 @@ export function Navbar() {
                   {item.label}
                 </a>
               ))}
-              <Button variant="solid" size="md" className="mt-2">
-                Go Premium
-              </Button>
             </div>
           </div>
         )}

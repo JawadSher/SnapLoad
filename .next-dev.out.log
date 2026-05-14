@@ -21,3 +21,9 @@ Creating turbopack project { dir: 'D:\\snapload', testMode: true }
  GET /api/progress?url=https%3A%2F%2Fwww.tiktok.com%2F%40ahmad_writer75%2Fvideo%2F7618801224011353366%3Fis_from_webapp%3D1%26sender_device%3Dpc&quality=1280p&format=mp4&audioOnly=false 200 in 9.2s (next.js: 11ms, application-code: 9.2s)
  GET /api/file/snapload-1778757549519-d8v695s9 200 in 628ms (next.js: 31ms, application-code: 597ms)
  DELETE /api/file/snapload-1778757549519-d8v695s9 200 in 574ms (next.js: 24ms, application-code: 551ms)
+✓ Compiled in 264ms
+ GET / 200 in 207ms (next.js: 23ms, application-code: 184ms)
+ GET /sw.js 404 in 818ms (next.js: 307ms, application-code: 512ms)
+ GET / 200 in 2.5s (next.js: 433ms, application-code: 2.0s)
+ GET /sw.js 404 in 165ms (next.js: 17ms, application-code: 148ms)
+[?25h

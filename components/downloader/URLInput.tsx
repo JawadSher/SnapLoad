@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Clipboard, Loader2 } from "lucide-react"
+import { AlertCircle, AlertTriangle, Clipboard, Loader2 } from "lucide-react"
 import { BulkURLInput } from "./BulkURLInput"
 import type { UseDownloaderReturn } from "@/hooks/useDownloader"
 
@@ -32,6 +32,9 @@ export function URLInput({ downloader }: URLInputProps) {
   const searchParams = useSearchParams()
   const queryExtractedRef = useRef(false)
   const pendingAutoExtractUrlRef = useRef<string | null>(null)
+  const isYouTubeDetected = detectedPlatform?.platform === "youtube"
+  const youtubeWarning =
+    "YouTube is currently not supported due to platform restrictions. Try TikTok, Instagram, Facebook, Twitter or Vimeo instead."
 
   const bulkCount = bulkUrls
     .split("\n")
@@ -71,8 +74,9 @@ export function URLInput({ downloader }: URLInputProps) {
     if (!pendingAutoExtractUrlRef.current || url.trim() !== pendingAutoExtractUrlRef.current) return
 
     pendingAutoExtractUrlRef.current = null
+    if (isYouTubeDetected) return
     void handleExtract()
-  }, [handleExtract, url])
+  }, [handleExtract, isYouTubeDetected, url])
 
   return (
     <Card className="hover-lift overflow-hidden border-indigo-500/20 shadow-lg shadow-indigo-500/20">
@@ -94,7 +98,7 @@ export function URLInput({ downloader }: URLInputProps) {
                 onChange={(event) => setUrl(event.target.value)}
                 onPaste={handlePaste}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !isExtracting && url) {
+                  if (event.key === "Enter" && !isExtracting && url && !isYouTubeDetected) {
                     void handleExtract()
                   }
                 }}
@@ -110,7 +114,7 @@ export function URLInput({ downloader }: URLInputProps) {
               </Button>
               <Button
                 onClick={() => void handleExtract()}
-                disabled={isExtracting || !url}
+                disabled={isExtracting || !url || isYouTubeDetected}
                 className="h-11 shrink-0 px-5"
               >
                 {isExtracting ? (
@@ -123,6 +127,13 @@ export function URLInput({ downloader }: URLInputProps) {
                 )}
               </Button>
             </div>
+
+            {isYouTubeDetected && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-400">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <span>{youtubeWarning}</span>
+              </div>
+            )}
 
             {detectedPlatform && (
               <div className="mb-4 flex items-center gap-2">

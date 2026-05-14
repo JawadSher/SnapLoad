@@ -41,6 +41,12 @@ export interface DownloadItem {
   format: Format;
   status: DownloadStatus;
   progress: number;
+  speed: string;
+  eta: string;
+  totalSize: string;
+  eventSource: EventSource | null;
+  statusMessage: string;
+  fileId?: string;
   error?: string;
   fileSize?: string;
   formats: ExtractedFormat[];

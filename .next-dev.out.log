@@ -1,0 +1,23 @@
+
+> snapload@0.1.0 dev
+> next dev --port 3000 --hostname 127.0.0.1
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+✓ Ready in 632ms
+Creating turbopack project { dir: 'D:\\snapload', testMode: true }
+
+ GET / 200 in 737ms (next.js: 213ms, application-code: 523ms)
+ GET / 200 in 186ms (next.js: 7ms, application-code: 179ms)
+ GET / 200 in 422ms (next.js: 12ms, application-code: 410ms)
+ GET /sw.js 404 in 227ms (next.js: 62ms, application-code: 166ms)
+ GET / 200 in 425ms (next.js: 8ms, application-code: 417ms)
+ GET /sw.js 404 in 151ms (next.js: 13ms, application-code: 138ms)
+ GET /sw.js 404 in 154ms (next.js: 14ms, application-code: 140ms)
+ GET /api/progress?url=https%3A%2F%2Fwww.tiktok.com%2F%40ahmad_writer75%2Fvideo%2F7618801224011353366%3Fis_from_webapp%3D1%26sender_device%3Dpc&quality=1280p&format=mp4&audioOnly=false 200 in 10.3s (next.js: 318ms, application-code: 10.0s)
+ GET /api/file/snapload-1778757521173-df93ofn4 200 in 1558ms (next.js: 888ms, application-code: 670ms)
+ GET /api/progress?url=https%3A%2F%2Fwww.tiktok.com%2F%40ahmad_writer75%2Fvideo%2F7618801224011353366%3Fis_from_webapp%3D1%26sender_device%3Dpc&quality=1280p&format=mp4&audioOnly=false 200 in 9.2s (next.js: 11ms, application-code: 9.2s)
+ GET /api/file/snapload-1778757549519-d8v695s9 200 in 628ms (next.js: 31ms, application-code: 597ms)
+ DELETE /api/file/snapload-1778757549519-d8v695s9 200 in 574ms (next.js: 24ms, application-code: 551ms)

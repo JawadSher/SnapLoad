@@ -50,6 +50,12 @@ function getStatusBadge(status: DownloadItem["status"], progress: number) {
   }
 }
 
+function getProgressMeta(item: DownloadItem): string {
+  return [item.speed, item.eta ? `ETA ${item.eta}` : "", item.totalSize ? `of ${item.totalSize}` : ""]
+    .filter(Boolean)
+    .join(" · ")
+}
+
 function getFormatDisplay(item: DownloadItem): string {
   const selectedFormat = item.formats.find((format) => format.url === item.selectedFormatUrl)
   if (selectedFormat?.isAudio || item.quality === "audio") return "MP3"
@@ -134,16 +140,41 @@ export function DownloadCard({
             </Select>
           </div>
 
-          {(item.status === "downloading" || item.status === "completed") && (
-            <div className="mt-3">
-              <Progress value={item.progress} max={100} />
-            </div>
-          )}
+          {(item.status === "downloading" || item.status === "completed" || item.status === "error") && (
+            <div className="mt-3 space-y-2">
+              {item.status !== "error" ? (
+                <div className="flex items-center gap-3">
+                  <Progress
+                    value={item.status === "completed" ? 100 : item.progress}
+                    max={100}
+                    indicatorClassName={item.status === "completed" ? "from-green-500 via-emerald-500 to-green-500" : undefined}
+                  />
+                  <span className="w-10 text-right text-xs font-medium text-zinc-300">
+                    {item.status === "completed" ? 100 : item.progress}%
+                  </span>
+                </div>
+              ) : null}
 
-          {item.status === "error" && item.error && (
-            <div className="mt-2 flex items-center gap-2 text-xs text-red-400">
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span>{item.error}</span>
+              {item.status === "downloading" && (
+                <div className="text-xs text-zinc-400">
+                  {item.statusMessage && <p className="mb-1 text-zinc-300">{item.statusMessage}</p>}
+                  {getProgressMeta(item) && <p>{getProgressMeta(item)}</p>}
+                </div>
+              )}
+
+              {item.status === "completed" && (
+                <div className="flex items-center gap-2 text-xs font-medium text-green-400">
+                  <Check className="h-3.5 w-3.5" />
+                  <span>{item.statusMessage || "Download Complete"}</span>
+                </div>
+              )}
+
+              {item.status === "error" && item.error && (
+                <div className="flex items-center gap-2 text-xs text-red-400">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  <span>{item.error}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

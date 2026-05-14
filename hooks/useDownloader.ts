@@ -52,24 +52,15 @@ interface ExtractApiErrorBody {
 
 type ExtractApiBody = ExtractApiSuccessBody | ExtractApiErrorBody
 
-interface WritableFileTarget {
-  write: (data: BufferSource | Blob | string) => Promise<void>
-  close: () => Promise<void>
-  abort?: () => Promise<void>
-}
-
-interface SaveFileHandle {
-  createWritable: () => Promise<WritableFileTarget>
-}
-
-type WindowWithFilePicker = Window & {
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string
-    types?: Array<{
-      description: string
-      accept: Record<string, string[]>
-    }>
-  }) => Promise<SaveFileHandle>
+interface ProgressEventData {
+  type?: "start" | "progress" | "complete" | "error"
+  percentage?: number
+  speed?: string
+  eta?: string
+  totalSize?: string
+  fileId?: string
+  filename?: string
+  message?: string
 }
 
 export interface UseDownloaderReturn {
@@ -167,66 +158,6 @@ function sanitizeFilename(title: string, format: Format): string {
   return `${clean || fallback}.${extension}`
 }
 
-function getMimeType(format: Format): string {
-  switch (format.toLowerCase()) {
-    case "mp4":
-      return "video/mp4"
-    case "webm":
-      return "video/webm"
-    case "mkv":
-      return "video/x-matroska"
-    case "mp3":
-      return "audio/mpeg"
-    case "m4a":
-      return "audio/mp4"
-    case "aac":
-      return "audio/aac"
-    case "opus":
-      return "audio/opus"
-    default:
-      return "application/octet-stream"
-  }
-}
-
-async function pickSaveFile(filename: string, format: Format): Promise<SaveFileHandle | null> {
-  const picker = (window as WindowWithFilePicker).showSaveFilePicker
-  if (!picker) return null
-
-  return picker({
-    suggestedName: filename,
-    types: [
-      {
-        description: "Media file",
-        accept: {
-          [getMimeType(format)]: [`.${format.toLowerCase()}`],
-        },
-      },
-    ],
-  })
-}
-
-function getDownloadErrorMessage(response: Response, fallback: string): Promise<string> {
-  return response.text().then((text) => {
-    try {
-      const body = JSON.parse(text) as { error?: string }
-      return body.error || fallback
-    } catch {
-      return text || fallback
-    }
-  })
-}
-
-function saveBlob(filename: string, blob: Blob) {
-  const objectUrl = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = objectUrl
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  document.body.removeChild(anchor)
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-}
-
 function normalizeFormats(formats: ExtractApiFormat[]): ExtractedFormat[] {
   return formats.flatMap((format): ExtractedFormat[] => {
     const url = format.url.trim()
@@ -279,6 +210,29 @@ function isPlatform(value: string): value is Platform {
   ].includes(value)
 }
 
+function clampProgress(value: number | undefined, max = 100): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(Math.max(Math.round(value ?? 0), 0), max)
+}
+
+function triggerBrowserDownload(fileId: string, filename: string) {
+  const anchor = document.createElement("a")
+  anchor.href = `/api/file/${encodeURIComponent(fileId)}`
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+}
+
+function cleanupServerFile(fileId: string) {
+  void fetch(`/api/file/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  }).catch(() => {
+    // The file route also cleans up after successful streaming.
+  })
+}
+
 export function useDownloader(): UseDownloaderReturn {
   const [url, setUrl] = useState("")
   const [bulkUrls, setBulkUrls] = useState("")
@@ -290,6 +244,8 @@ export function useDownloader(): UseDownloaderReturn {
   const intervalsRef = useRef<number[]>([])
   const timeoutsRef = useRef<number[]>([])
   const abortControllersRef = useRef<AbortController[]>([])
+  const eventSourcesRef = useRef<Record<string, EventSource>>({})
+  const fileIdsRef = useRef<Record<string, string>>({})
 
   const clearTrackedTimeout = useCallback((timeout: number) => {
     window.clearTimeout(timeout)
@@ -386,6 +342,11 @@ export function useDownloader(): UseDownloaderReturn {
         format: firstFormat.format,
         status: "ready",
         progress: 0,
+        speed: "",
+        eta: "",
+        totalSize: "",
+        eventSource: null,
+        statusMessage: "",
         fileSize: firstFormat.fileSize,
         formats,
         selectedFormatUrl: firstFormat.url,
@@ -447,99 +408,200 @@ export function useDownloader(): UseDownloaderReturn {
   }, [bulkUrls, clearTrackedTimeout, extractSingleUrl, trackTimeout])
 
   const handleDownload = useCallback(async (item: DownloadItem) => {
+    const existingEventSource = eventSourcesRef.current[item.id]
+    if (existingEventSource) {
+      existingEventSource.close()
+      delete eventSourcesRef.current[item.id]
+    }
+
     setDownloads((current) =>
       current.map((download) =>
-        download.id === item.id ? { ...download, status: "downloading", progress: 0, error: undefined } : download
+        download.id === item.id
+          ? {
+              ...download,
+              status: "downloading",
+              progress: 0,
+              speed: "",
+              eta: "",
+              totalSize: "",
+              eventSource: null,
+              statusMessage: "Connecting to server...",
+              error: undefined,
+            }
+          : download
       )
     )
 
     try {
-      const filename = sanitizeFilename(item.title, item.format)
-      const downloadUrl =
-        `/api/download?url=${encodeURIComponent(item.url)}` +
-        `&quality=${encodeURIComponent(item.quality)}` +
-        `&format=${encodeURIComponent(item.format)}` +
-        `&filename=${encodeURIComponent(filename)}`
-      const saveHandle = await pickSaveFile(filename, item.format)
-      const response = await fetch(downloadUrl, { cache: "no-store" })
-
-      if (!response.ok) {
-        throw new Error(await getDownloadErrorMessage(response, `Download failed with status ${response.status}`))
+      if (!("EventSource" in window)) {
+        throw new Error("Live progress is not supported in this browser")
       }
 
-      const contentLength = Number(response.headers.get("content-length") ?? 0)
-
-      if (!response.body) {
-        const blob = await response.blob()
-        if (saveHandle) {
-          const writable = await saveHandle.createWritable()
-          await writable.write(blob)
-          await writable.close()
-        } else {
-          saveBlob(filename, blob)
-        }
-
-        setDownloads((current) =>
-          current.map((download) =>
-            download.id === item.id ? { ...download, progress: 100, status: "completed" } : download
-          )
-        )
-        return
-      }
-
-      const reader = response.body.getReader()
-      const writable = saveHandle ? await saveHandle.createWritable() : null
-      const chunks: BlobPart[] = []
-      let receivedLength = 0
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          if (!value) continue
-
-          if (writable) {
-            await writable.write(value)
-          } else {
-            chunks.push(new Uint8Array(value).buffer)
-          }
-
-          receivedLength += value.byteLength
-
-          const progress =
-            contentLength > 0
-              ? Math.min(Math.round((receivedLength / contentLength) * 100), 99)
-              : Math.min(Math.max(1, Math.round(receivedLength / 1024 / 1024)), 95)
-
-          setDownloads((current) =>
-            current.map((download) => (download.id === item.id ? { ...download, progress } : download))
-          )
-        }
-      } catch (streamError) {
-        if (writable?.abort) await writable.abort()
-        throw streamError
-      }
-
-      if (writable) {
-        await writable.close()
-      } else {
-        saveBlob(filename, new Blob(chunks, { type: response.headers.get("content-type") || getMimeType(item.format) }))
-      }
+      const params = new URLSearchParams({
+        url: item.url,
+        quality: item.quality,
+        format: item.format,
+        audioOnly: item.format === "mp3" ? "true" : "false",
+      })
+      const eventSource = new EventSource(`/api/progress?${params.toString()}`)
+      eventSourcesRef.current[item.id] = eventSource
 
       setDownloads((current) =>
-        current.map((download) =>
-          download.id === item.id ? { ...download, progress: 100, status: "completed" } : download
-        )
+        current.map((download) => (download.id === item.id ? { ...download, eventSource } : download))
       )
-    } catch (downloadError) {
-      if (downloadError instanceof DOMException && downloadError.name === "AbortError") {
+
+      eventSource.onmessage = (event) => {
+        let data: ProgressEventData
+
+        try {
+          data = JSON.parse(event.data) as ProgressEventData
+        } catch {
+          setDownloads((current) =>
+            current.map((download) =>
+              download.id === item.id
+                ? {
+                    ...download,
+                    status: "error",
+                    progress: 0,
+                    statusMessage: "The server sent an unreadable progress update.",
+                    error: "The server sent an unreadable progress update.",
+                  }
+                : download
+            )
+          )
+          eventSource.close()
+          delete eventSourcesRef.current[item.id]
+          return
+        }
+
+        if (data.type === "start") {
+          setDownloads((current) =>
+            current.map((download) =>
+              download.id === item.id
+                ? { ...download, status: "downloading", statusMessage: data.message || "Server is processing..." }
+                : download
+            )
+          )
+          return
+        }
+
+        if (data.type === "progress") {
+          setDownloads((current) =>
+            current.map((download) =>
+              download.id === item.id
+                ? {
+                    ...download,
+                    status: "downloading",
+                    progress: clampProgress(data.percentage, 99),
+                    speed: data.speed || "",
+                    eta: data.eta || "",
+                    totalSize: data.totalSize || "",
+                    statusMessage: data.message || "Downloading...",
+                  }
+                : download
+            )
+          )
+          return
+        }
+
+        if (data.type === "complete") {
+          const fileId = data.fileId
+          const filename = data.filename || sanitizeFilename(item.title, item.format)
+
+          if (!fileId) {
+            setDownloads((current) =>
+              current.map((download) =>
+                download.id === item.id
+                  ? {
+                      ...download,
+                      status: "error",
+                      statusMessage: "The server finished but did not return a file.",
+                      error: "The server finished but did not return a file.",
+                    }
+                  : download
+              )
+            )
+            eventSource.close()
+            delete eventSourcesRef.current[item.id]
+            return
+          }
+
+          fileIdsRef.current[item.id] = fileId
+
+          setDownloads((current) =>
+            current.map((download) =>
+              download.id === item.id
+                ? {
+                    ...download,
+                    progress: 99,
+                    statusMessage: data.message || "Preparing your file...",
+                    fileId,
+                  }
+                : download
+            )
+          )
+
+          triggerBrowserDownload(fileId, filename)
+
+          trackTimeout(() => {
+            setDownloads((current) =>
+              current.map((download) =>
+                download.id === item.id
+                  ? {
+                      ...download,
+                      progress: 100,
+                      status: "completed",
+                      statusMessage: "Download Complete",
+                      eventSource: null,
+                    }
+                  : download
+              )
+            )
+            eventSource.close()
+            delete eventSourcesRef.current[item.id]
+          }, 2000)
+          return
+        }
+
+        if (data.type === "error") {
+          setDownloads((current) =>
+            current.map((download) =>
+              download.id === item.id
+                ? {
+                    ...download,
+                    status: "error",
+                    progress: 0,
+                    statusMessage: data.message || "Download failed. Try again.",
+                    error: data.message || "Download failed. Try again.",
+                    eventSource: null,
+                  }
+                : download
+            )
+          )
+          eventSource.close()
+          delete eventSourcesRef.current[item.id]
+        }
+      }
+
+      eventSource.onerror = () => {
         setDownloads((current) =>
           current.map((download) =>
-            download.id === item.id ? { ...download, status: "ready", progress: 0, error: undefined } : download
+            download.id === item.id
+              ? {
+                  ...download,
+                  status: "error",
+                  statusMessage: "Connection lost. Try again.",
+                  error: "Connection lost. Try again.",
+                  eventSource: null,
+                }
+              : download
           )
         )
-        return
+        eventSource.close()
+        delete eventSourcesRef.current[item.id]
       }
+    } catch (downloadError) {
+      const message = normalizeError(downloadError instanceof Error ? downloadError.message : "Download failed")
 
       setDownloads((current) =>
         current.map((download) =>
@@ -548,19 +610,42 @@ export function useDownloader(): UseDownloaderReturn {
                 ...download,
                 status: "error",
                 progress: 0,
-                error: normalizeError(downloadError instanceof Error ? downloadError.message : "Download failed"),
+                statusMessage: message,
+                error: message,
               }
             : download
         )
       )
     }
-  }, [])
+  }, [trackTimeout])
 
   const handleRemove = useCallback((id: string) => {
+    const eventSource = eventSourcesRef.current[id]
+    if (eventSource) {
+      eventSource.close()
+      delete eventSourcesRef.current[id]
+    }
+
+    const fileId = fileIdsRef.current[id]
+    if (fileId) {
+      cleanupServerFile(fileId)
+      delete fileIdsRef.current[id]
+    }
+
     setDownloads((current) => current.filter((item) => item.id !== id))
   }, [])
 
   const handleClearAll = useCallback(() => {
+    for (const eventSource of Object.values(eventSourcesRef.current)) {
+      eventSource.close()
+    }
+    eventSourcesRef.current = {}
+
+    for (const fileId of Object.values(fileIdsRef.current)) {
+      cleanupServerFile(fileId)
+    }
+    fileIdsRef.current = {}
+
     setDownloads([])
   }, [])
 
@@ -657,6 +742,11 @@ export function useDownloader(): UseDownloaderReturn {
         controller.abort()
       }
       abortControllersRef.current = []
+
+      for (const eventSource of Object.values(eventSourcesRef.current)) {
+        eventSource.close()
+      }
+      eventSourcesRef.current = {}
     }
   }, [])
 

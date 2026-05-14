@@ -1,133 +1,78 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { useEffect, useRef, useState, type ClipboardEvent } from "react"
+import { useSearchParams } from "next/navigation"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Clipboard, Loader2 } from "lucide-react"
-import { QualitySelector } from "./QualitySelector"
-import { FormatSelector } from "./FormatSelector"
+import { AlertCircle, Clipboard, Loader2 } from "lucide-react"
 import { BulkURLInput } from "./BulkURLInput"
-import { DownloadItem, Platform, Quality, Format } from "@/types"
+import type { UseDownloaderReturn } from "@/hooks/useDownloader"
 
 interface URLInputProps {
-  onAddDownloads: (items: DownloadItem[]) => void
+  downloader: UseDownloaderReturn
 }
 
-function detectPlatform(url: string): Platform {
-  const urlStr = url.toLowerCase()
-  if (urlStr.includes("youtube.com") || urlStr.includes("youtu.be")) return "youtube"
-  if (urlStr.includes("tiktok.com")) return "tiktok"
-  if (urlStr.includes("instagram.com")) return "instagram"
-  if (urlStr.includes("facebook.com")) return "facebook"
-  if (urlStr.includes("twitter.com") || urlStr.includes("x.com")) return "twitter"
-  if (urlStr.includes("reddit.com")) return "reddit"
-  if (urlStr.includes("vimeo.com")) return "vimeo"
-  if (urlStr.includes("dailymotion.com")) return "dailymotion"
-  if (urlStr.includes("soundcloud.com")) return "soundcloud"
-  return "unknown"
-}
-
-function generateMockDownload(url: string, index: number = 0): DownloadItem {
-  const platform = detectPlatform(url)
-  const titles: Record<string, string> = {
-    youtube: `Video from YouTube - ${index + 1}`,
-    tiktok: `TikTok Video #${index + 1}`,
-    instagram: `Instagram Reel - ${index + 1}`,
-    facebook: `Facebook Video - ${index + 1}`,
-    twitter: `Tweet Video - ${index + 1}`,
-    reddit: `Reddit Post - ${index + 1}`,
-    vimeo: `Vimeo Video - ${index + 1}`,
-    dailymotion: `Dailymotion Video - ${index + 1}`,
-    soundcloud: `SoundCloud Track - ${index + 1}`,
-    unknown: `Video ${index + 1}`,
-  }
-
-  return {
-    id: `download-${Date.now()}-${index}`,
+export function URLInput({ downloader }: URLInputProps) {
+  const {
     url,
-    platform,
-    title: titles[platform],
-    thumbnail: `https://picsum.photos/120/68?random=${Date.now() + index}`,
-    duration: "15:42",
-    quality: "1080p",
-    format: "mp4",
-    status: "ready",
-    progress: 0,
-    fileSize: "245 MB",
-  }
-}
-
-export function URLInput({ onAddDownloads }: URLInputProps) {
-  const [singleUrl, setSingleUrl] = useState("")
-  const [bulkUrls, setBulkUrls] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [detectedPlatform, setDetectedPlatform] = useState<Platform | null>(null)
-  const [quality, setQuality] = useState<Quality>("1080p")
-  const [format, setFormat] = useState<Format>("mp4")
+    setUrl,
+    bulkUrls,
+    setBulkUrls,
+    isExtracting,
+    loadingMessage,
+    detectedPlatform,
+    error,
+    handleExtract,
+    handleBulkExtract,
+  } = downloader
   const [activeTab, setActiveTab] = useState("single")
+  const searchParams = useSearchParams()
+  const queryExtractedRef = useRef(false)
+  const pendingAutoExtractUrlRef = useRef<string | null>(null)
 
-  const handlePasteClick = async () => {
+  const bulkCount = bulkUrls
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 10).length
+
+  async function handlePasteClick() {
     try {
       const text = await navigator.clipboard.readText()
       if (activeTab === "single") {
-        setSingleUrl(text)
+        setUrl(text)
       } else {
         setBulkUrls(text)
       }
     } catch {
-      console.log("Failed to read clipboard")
+      // Clipboard access may be blocked until the browser sees a user gesture.
     }
   }
 
-  const handleDetect = useCallback(async () => {
-    setIsLoading(true)
-    // Simulate 2 second detection time
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    
-    const platform = detectPlatform(singleUrl)
-    setDetectedPlatform(platform)
-    setIsLoading(false)
-  }, [singleUrl])
-
-  const handleDownloadNow = () => {
-    if (singleUrl && detectedPlatform) {
-      // Simulate 3 second download
-      const newItem = generateMockDownload(singleUrl)
-      onAddDownloads([newItem])
-      
-      // Simulate download progress
-      setTimeout(() => {
-        // Progress simulation will be handled by the parent
-      }, 100)
-      
-      setSingleUrl("")
-      setDetectedPlatform(null)
-      setQuality("1080p")
-      setFormat("mp4")
-    }
+  function handlePaste(event: ClipboardEvent<HTMLInputElement>) {
+    const pastedUrl = event.clipboardData.getData("text").trim()
+    if (!pastedUrl) return
+    pendingAutoExtractUrlRef.current = pastedUrl
   }
 
-  const handleBulkDetect = async () => {
-    setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    
-    const urls = bulkUrls
-      .split("\n")
-      .map((url) => url.trim())
-      .filter((url) => url.length > 0)
-      .slice(0, 10)
+  useEffect(() => {
+    const queryUrl = searchParams.get("url")
+    if (!queryUrl || queryExtractedRef.current) return
 
-    const downloads = urls.map((url, index) =>
-      generateMockDownload(url, index)
-    )
+    queryExtractedRef.current = true
+    setUrl(queryUrl)
+    pendingAutoExtractUrlRef.current = queryUrl
+  }, [searchParams, setUrl])
 
-    onAddDownloads(downloads)
-    setBulkUrls("")
-    setIsLoading(false)
-  }
+  useEffect(() => {
+    if (!pendingAutoExtractUrlRef.current || url.trim() !== pendingAutoExtractUrlRef.current) return
+
+    pendingAutoExtractUrlRef.current = null
+    void handleExtract()
+  }, [handleExtract, url])
 
   return (
     <Card className="hover-lift overflow-hidden border-indigo-500/20 shadow-lg shadow-indigo-500/20">
@@ -140,20 +85,17 @@ export function URLInput({ onAddDownloads }: URLInputProps) {
         </div>
 
         <div className="p-6">
-          {/* Single URL Tab */}
           <TabsContent value="single" className="space-y-4">
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch">
               <Input
                 placeholder="Paste video URL here... (YouTube, TikTok, Instagram...)"
-                value={singleUrl}
+                value={url}
                 className="h-11 flex-1"
-                onChange={(e) => {
-                  setSingleUrl(e.target.value)
-                  setDetectedPlatform(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !isLoading && singleUrl) {
-                    handleDetect()
+                onChange={(event) => setUrl(event.target.value)}
+                onPaste={handlePaste}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !isExtracting && url) {
+                    void handleExtract()
                   }
                 }}
               />
@@ -164,73 +106,73 @@ export function URLInput({ onAddDownloads }: URLInputProps) {
                 title="Paste from clipboard"
                 className="h-11 w-11 shrink-0"
               >
-                <Clipboard className="w-5 h-5" />
+                <Clipboard className="h-5 w-5" />
               </Button>
               <Button
-                onClick={handleDetect}
-                disabled={!singleUrl || isLoading}
+                onClick={() => void handleExtract()}
+                disabled={isExtracting || !url}
                 className="h-11 shrink-0 px-5"
               >
-                {isLoading ? (
+                {isExtracting ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Fetching...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {loadingMessage ? "Waking up..." : "Detecting..."}
                   </>
                 ) : (
-                  "Fetch"
+                  "Detect & Fetch"
                 )}
               </Button>
             </div>
 
-            {/* Detected Platform Badge */}
             {detectedPlatform && (
-              <div className="flex items-center gap-2 mb-4">
+              <div className="mb-4 flex items-center gap-2">
                 <span className="text-sm text-zinc-400">Platform:</span>
-                <Badge variant="primary">
-                  {detectedPlatform.toUpperCase()}
+                <Badge variant="default" className="gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: detectedPlatform.color }}
+                  />
+                  {detectedPlatform.name}
                 </Badge>
               </div>
             )}
 
-            {/* Quality & Format Selectors */}
-            {detectedPlatform && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                <QualitySelector value={quality} onValueChange={setQuality} />
-                <FormatSelector
-                  value={format}
-                  onValueChange={setFormat}
-                  quality={quality}
-                />
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
-            {/* Download Button */}
-            {detectedPlatform && (
-              <Button
-                onClick={handleDownloadNow}
-                className="h-11 w-full"
-                size="lg"
-              >
-                Download Now
-              </Button>
+            {loadingMessage && (
+              <div className="flex items-center gap-2 text-sm text-indigo-300">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span>{loadingMessage}</span>
+              </div>
             )}
 
-            {/* Popular Platforms */}
             {!detectedPlatform && (
-              <p className="text-sm text-zinc-500 mt-4">
-                Popular: <span className="text-zinc-400">YouTube • TikTok • Instagram • Facebook • Twitter</span>
+              <p className="mt-4 text-sm text-zinc-500">
+                Popular: <span className="text-zinc-400">YouTube, TikTok, Instagram, Facebook, Twitter</span>
               </p>
             )}
           </TabsContent>
 
-          {/* Bulk Download Tab */}
           <TabsContent value="bulk">
             <BulkURLInput
               value={bulkUrls}
               onChange={setBulkUrls}
-              onDetect={handleBulkDetect}
-              isLoading={isLoading}
+              onDetect={handleBulkExtract}
+              isLoading={isExtracting}
+              loadingMessage={loadingMessage}
+              submitLabel={bulkCount > 0 ? `Detect ${bulkCount} URL${bulkCount === 1 ? "" : "s"}` : "Detect URLs"}
             />
+            {error && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
           </TabsContent>
         </div>
       </Tabs>

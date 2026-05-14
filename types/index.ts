@@ -9,13 +9,15 @@ export type Platform =
   | "vimeo"
   | "dailymotion"
   | "soundcloud"
+  | "twitch"
+  | "pinterest"
   | "unknown";
 
-// Video quality options
-export type Quality = "4K" | "1080p" | "720p" | "480p" | "360p" | "audio";
+// Video quality returned by the extractor API.
+export type Quality = string;
 
-// Download format
-export type Format = "mp4" | "mp3" | "webm" | "aac" | "mkv";
+// Download format returned by the extractor API.
+export type Format = string;
 
 // Download status
 export type DownloadStatus =
@@ -34,12 +36,25 @@ export interface DownloadItem {
   title: string;
   thumbnail: string;
   duration: string;
+  author?: string;
   quality: Quality;
   format: Format;
   status: DownloadStatus;
   progress: number;
   error?: string;
   fileSize?: string;
+  formats: ExtractedFormat[];
+  selectedFormatUrl: string;
+  addedAt: Date;
+}
+
+export interface ExtractedFormat {
+  quality: Quality;
+  format: Format;
+  url: string;
+  fileSize?: string;
+  isAudio: boolean;
+  label: string;
 }
 
 // Available format option

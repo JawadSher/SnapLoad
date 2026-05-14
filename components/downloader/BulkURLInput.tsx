@@ -5,9 +5,18 @@ interface BulkURLInputProps {
   onChange: (value: string) => void
   onDetect: () => void
   isLoading: boolean
+  loadingMessage?: string | null
+  submitLabel?: string
 }
 
-export function BulkURLInput({ value, onChange, onDetect, isLoading }: BulkURLInputProps) {
+export function BulkURLInput({
+  value,
+  onChange,
+  onDetect,
+  isLoading,
+  loadingMessage,
+  submitLabel = "Detect All & Add to Queue",
+}: BulkURLInputProps) {
   return (
     <div className="space-y-3">
       <textarea
@@ -27,13 +36,14 @@ export function BulkURLInput({ value, onChange, onDetect, isLoading }: BulkURLIn
           {isLoading ? (
             <>
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              Detecting...
+              {loadingMessage ? "Waking up..." : "Detecting..."}
             </>
           ) : (
-            "Detect All & Add to Queue"
+            submitLabel
           )}
         </button>
       </div>
+      {loadingMessage && <p className="text-sm text-indigo-300">{loadingMessage}</p>}
     </div>
   )
 }

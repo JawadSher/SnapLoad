@@ -1,6 +1,6 @@
 "use client"
 
-import { DownloadItem } from "@/types"
+import { DownloadItem, Format, Quality } from "@/types"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,20 +8,30 @@ import { DownloadCloud } from "lucide-react"
 import { DownloadCard } from "./DownloadCard"
 
 interface DownloadQueueProps {
-  items: DownloadItem[]
+  downloads: DownloadItem[]
+  onDownload: (item: DownloadItem) => void
   onRemove: (id: string) => void
   onClearAll: () => void
+  onUpdateQuality: (id: string, quality: Quality) => void
+  onUpdateFormat: (id: string, format: Format) => void
 }
 
-export function DownloadQueue({ items, onRemove, onClearAll }: DownloadQueueProps) {
-  const isEmpty = items.length === 0
+export function DownloadQueue({
+  downloads,
+  onDownload,
+  onRemove,
+  onClearAll,
+  onUpdateQuality,
+  onUpdateFormat,
+}: DownloadQueueProps) {
+  const isEmpty = downloads.length === 0
 
   return (
     <div className="w-full">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-white">Download Queue</h2>
-          <Badge variant="default">{items.length}</Badge>
+          <Badge variant="default">{downloads.length}</Badge>
         </div>
         {!isEmpty && (
           <Button variant="ghost" size="sm" onClick={onClearAll}>
@@ -38,8 +48,15 @@ export function DownloadQueue({ items, onRemove, onClearAll }: DownloadQueueProp
         </Card>
       ) : (
         <div className="space-y-3">
-          {items.map((item) => (
-            <DownloadCard key={item.id} item={item} onRemove={onRemove} />
+          {downloads.map((item) => (
+            <DownloadCard
+              key={item.id}
+              item={item}
+              onDownload={onDownload}
+              onRemove={onRemove}
+              onUpdateQuality={onUpdateQuality}
+              onUpdateFormat={onUpdateFormat}
+            />
           ))}
         </div>
       )}

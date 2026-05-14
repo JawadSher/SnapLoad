@@ -1,86 +1,13 @@
 "use client"
 
+import { Suspense } from "react"
 import { Badge } from "@/components/ui/badge"
 import { URLInput } from "@/components/downloader/URLInput"
 import { DownloadQueue } from "@/components/downloader/DownloadQueue"
-import { DownloadItem } from "@/types"
-import { useEffect, useState } from "react"
+import { useDownloader } from "@/hooks/useDownloader"
 
 export function HeroSection() {
-  const [downloads, setDownloads] = useState<DownloadItem[]>([
-    {
-      id: "1",
-      url: "https://youtube.com/watch?v=example",
-      platform: "youtube",
-      title: "How to Build a SaaS Product in 2024 — Complete Guide",
-      thumbnail: "https://picsum.photos/120/68",
-      duration: "15:42",
-      quality: "1080p",
-      format: "mp4",
-      status: "completed",
-      progress: 100,
-      fileSize: "245 MB",
-    },
-    {
-      id: "2",
-      url: "https://tiktok.com/@user/video/example",
-      platform: "tiktok",
-      title: "Viral TikTok Dance Tutorial #trending",
-      thumbnail: "https://picsum.photos/120/68?random=2",
-      duration: "0:45",
-      quality: "720p",
-      format: "mp4",
-      status: "downloading",
-      progress: 65,
-      fileSize: "18 MB",
-    },
-    {
-      id: "3",
-      url: "https://instagram.com/reel/example",
-      platform: "instagram",
-      title: "Instagram Reel — Beautiful Sunset Timelapse",
-      thumbnail: "https://picsum.photos/120/68?random=3",
-      duration: "0:30",
-      quality: "1080p",
-      format: "mp4",
-      status: "ready",
-      progress: 0,
-      fileSize: "12 MB",
-    },
-  ])
-
-  const handleAddDownloads = (items: DownloadItem[]) => {
-    setDownloads((current) => [...current, ...items])
-  }
-
-  const handleRemove = (id: string) => {
-    setDownloads((current) => current.filter((item) => item.id !== id))
-  }
-
-  const handleClearAll = () => {
-    setDownloads([])
-  }
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDownloads((prev) =>
-        prev.map((item) => {
-          if (item.status === "downloading" && item.progress < 100) {
-            const nextProgress = Math.min(item.progress + Math.random() * 15, 100)
-            return {
-              ...item,
-              progress: Math.floor(nextProgress),
-              status: nextProgress >= 100 ? "completed" : "downloading",
-            }
-          }
-
-          return item
-        })
-      )
-    }, 500)
-
-    return () => clearInterval(interval)
-  }, [])
+  const downloader = useDownloader()
 
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pb-12 pt-24">
@@ -113,14 +40,19 @@ export function HeroSection() {
         </p>
 
         <div className="mb-8">
-          <URLInput onAddDownloads={handleAddDownloads} />
+          <Suspense fallback={null}>
+            <URLInput downloader={downloader} />
+          </Suspense>
         </div>
 
         <div className="mb-12">
           <DownloadQueue
-            items={downloads}
-            onRemove={handleRemove}
-            onClearAll={handleClearAll}
+            downloads={downloader.downloads}
+            onDownload={(item) => void downloader.handleDownload(item)}
+            onRemove={downloader.handleRemove}
+            onClearAll={downloader.handleClearAll}
+            onUpdateQuality={downloader.updateItemQuality}
+            onUpdateFormat={downloader.updateItemFormat}
           />
         </div>
 

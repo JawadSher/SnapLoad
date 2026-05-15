@@ -210,9 +210,90 @@ function isPlatform(value: string): value is Platform {
   ].includes(value)
 }
 
-function clampProgress(value: number | undefined, max = 100): number {
-  if (!Number.isFinite(value)) return 0
-  return Math.min(Math.max(Math.round(value ?? 0), 0), max)
+function parseDurationToSeconds(duration: string): number | null {
+  const parts = duration
+    .trim()
+    .split(":")
+    .map((part) => Number.parseInt(part, 10))
+
+  if (!parts.length || parts.some((part) => !Number.isFinite(part) || part < 0)) return null
+
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 1) return parts[0]
+  return null
+}
+
+function stableRatio(seed: string): number {
+  let hash = 0
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
+  }
+  return (hash % 1000) / 1000
+}
+
+function spreadMinutes(min: number, max: number, seed: string): number {
+  return min + (max - min) * stableRatio(seed)
+}
+
+function getQualityTimingMultiplier(item: DownloadItem): number {
+  const qualityText = `${item.quality} ${item.format}`.toLowerCase()
+  const numericQuality = Number.parseInt(item.quality, 10)
+
+  if (item.format.toLowerCase() === "mp3" || item.quality.toLowerCase() === "audio") return 0.72
+  if (Number.isFinite(numericQuality) && numericQuality >= 2160) return 1.24
+  if (Number.isFinite(numericQuality) && numericQuality >= 1440) return 1.16
+  if (Number.isFinite(numericQuality) && numericQuality >= 1080) return 1.08
+  if (/4k|2160|uhd/.test(qualityText)) return 1.24
+  if (/1440|2k|qhd/.test(qualityText)) return 1.16
+  if (/1080|hd/.test(qualityText)) return 1.08
+  return 1
+}
+
+function estimateSimulatedDownloadMs(item: DownloadItem): number {
+  const seconds = parseDurationToSeconds(item.duration)
+  const seed = `${item.id}-${item.duration}-${item.quality}-${item.format}`
+  let minutes: number
+
+  if (!seconds) {
+    minutes = spreadMinutes(3, 6, seed)
+  } else if (seconds <= 10) {
+    minutes = spreadMinutes(1.5, 2.25, seed)
+  } else if (seconds <= 15) {
+    minutes = spreadMinutes(2, 2.75, seed)
+  } else if (seconds <= 20) {
+    minutes = spreadMinutes(2.5, 3.25, seed)
+  } else if (seconds <= 30) {
+    minutes = spreadMinutes(3, 4, seed)
+  } else if (seconds <= 45) {
+    minutes = spreadMinutes(3.5, 4.75, seed)
+  } else if (seconds <= 60) {
+    minutes = spreadMinutes(4, 5.5, seed)
+  } else if (seconds <= 120) {
+    minutes = spreadMinutes(5, 7, seed)
+  } else if (seconds <= 300) {
+    minutes = spreadMinutes(7, 10, seed)
+  } else if (seconds <= 600) {
+    minutes = spreadMinutes(9, 13, seed)
+  } else if (seconds <= 900) {
+    minutes = spreadMinutes(11, 16, seed)
+  } else if (seconds <= 1800) {
+    minutes = spreadMinutes(15, 22, seed)
+  } else if (seconds <= 2700) {
+    minutes = spreadMinutes(20, 27, seed)
+  } else if (seconds <= 3600) {
+    minutes = spreadMinutes(24, 30, seed)
+  } else if (seconds <= 5400) {
+    minutes = spreadMinutes(30, 40, seed)
+  } else if (seconds <= 7200) {
+    minutes = spreadMinutes(38, 52, seed)
+  } else {
+    const extraHours = (seconds - 7200) / 3600
+    minutes = spreadMinutes(52 + extraHours * 10, 68 + extraHours * 14, seed)
+  }
+
+  const adjustedMinutes = Math.min(minutes * getQualityTimingMultiplier(item), 90)
+  return adjustedMinutes * 60 * 1000
 }
 
 function triggerBrowserDownload(fileId: string, filename: string) {
@@ -241,10 +322,11 @@ export function useDownloader(): UseDownloaderReturn {
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [detectedPlatform, setDetectedPlatform] = useState<DetectedPlatform | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const intervalsRef = useRef<number[]>([])
   const timeoutsRef = useRef<number[]>([])
   const abortControllersRef = useRef<AbortController[]>([])
   const eventSourcesRef = useRef<Record<string, EventSource>>({})
+  const progressTimeoutsRef = useRef<Record<string, number>>({})
+  const progressIntervalsRef = useRef<Record<string, number>>({})
   const fileIdsRef = useRef<Record<string, string>>({})
 
   const clearTrackedTimeout = useCallback((timeout: number) => {
@@ -260,6 +342,62 @@ export function useDownloader(): UseDownloaderReturn {
     timeoutsRef.current.push(timeout)
     return timeout
   }, [])
+
+  const stopFakeProgress = useCallback(
+    (id: string) => {
+      const timeout = progressTimeoutsRef.current[id]
+      if (timeout) {
+        clearTrackedTimeout(timeout)
+        delete progressTimeoutsRef.current[id]
+      }
+
+      const interval = progressIntervalsRef.current[id]
+      if (interval) {
+        window.clearInterval(interval)
+        delete progressIntervalsRef.current[id]
+      }
+    },
+    [clearTrackedTimeout]
+  )
+
+  const startFakeProgress = useCallback(
+    (item: DownloadItem) => {
+      stopFakeProgress(item.id)
+
+      const startedAt = Date.now()
+      const plannedDurationMs = estimateSimulatedDownloadMs(item)
+
+      const updateProgress = () => {
+        const elapsedRatio = Math.min((Date.now() - startedAt) / plannedDurationMs, 1)
+        const easedRatio = 1 - Math.pow(1 - elapsedRatio, 1.35)
+        const nextProgress = Math.min(Math.max(8, Math.floor(8 + easedRatio * 88)), 96)
+
+        setDownloads((current) =>
+          current.map((download) => {
+            if (download.id !== item.id || download.status !== "downloading") return download
+            return {
+              ...download,
+              progress: Math.max(download.progress, nextProgress),
+              statusMessage: download.statusMessage || "Downloading...",
+            }
+          })
+        )
+      }
+
+      const starter = trackTimeout(() => {
+        delete progressTimeoutsRef.current[item.id]
+        updateProgress()
+      }, 600)
+      progressTimeoutsRef.current[item.id] = starter
+      const interval = window.setInterval(updateProgress, 1300)
+      progressIntervalsRef.current[item.id] = interval
+
+      return () => {
+        stopFakeProgress(item.id)
+      }
+    },
+    [stopFakeProgress, trackTimeout]
+  )
 
   const fetchWithTimeout = useCallback(
     async (input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> => {
@@ -413,6 +551,7 @@ export function useDownloader(): UseDownloaderReturn {
       existingEventSource.close()
       delete eventSourcesRef.current[item.id]
     }
+    stopFakeProgress(item.id)
 
     setDownloads((current) =>
       current.map((download) =>
@@ -431,6 +570,7 @@ export function useDownloader(): UseDownloaderReturn {
           : download
       )
     )
+    startFakeProgress(item)
 
     try {
       if (!("EventSource" in window)) {
@@ -492,7 +632,6 @@ export function useDownloader(): UseDownloaderReturn {
                 ? {
                     ...download,
                     status: "downloading",
-                    progress: clampProgress(data.percentage, 99),
                     speed: data.speed || "",
                     eta: data.eta || "",
                     totalSize: data.totalSize || "",
@@ -527,14 +666,19 @@ export function useDownloader(): UseDownloaderReturn {
           }
 
           fileIdsRef.current[item.id] = fileId
+          stopFakeProgress(item.id)
+          eventSource.close()
+          delete eventSourcesRef.current[item.id]
 
           setDownloads((current) =>
             current.map((download) =>
               download.id === item.id
                 ? {
                     ...download,
-                    progress: 99,
-                    statusMessage: data.message || "Preparing your file...",
+                    progress: 100,
+                    status: "completed",
+                    statusMessage: "Download Complete",
+                    eventSource: null,
                     fileId,
                   }
                 : download
@@ -542,28 +686,11 @@ export function useDownloader(): UseDownloaderReturn {
           )
 
           triggerBrowserDownload(fileId, filename)
-
-          trackTimeout(() => {
-            setDownloads((current) =>
-              current.map((download) =>
-                download.id === item.id
-                  ? {
-                      ...download,
-                      progress: 100,
-                      status: "completed",
-                      statusMessage: "Download Complete",
-                      eventSource: null,
-                    }
-                  : download
-              )
-            )
-            eventSource.close()
-            delete eventSourcesRef.current[item.id]
-          }, 2000)
           return
         }
 
         if (data.type === "error") {
+          stopFakeProgress(item.id)
           setDownloads((current) =>
             current.map((download) =>
               download.id === item.id
@@ -584,6 +711,7 @@ export function useDownloader(): UseDownloaderReturn {
       }
 
       eventSource.onerror = () => {
+        stopFakeProgress(item.id)
         setDownloads((current) =>
           current.map((download) =>
             download.id === item.id
@@ -602,6 +730,7 @@ export function useDownloader(): UseDownloaderReturn {
       }
     } catch (downloadError) {
       const message = normalizeError(downloadError instanceof Error ? downloadError.message : "Download failed")
+      stopFakeProgress(item.id)
 
       setDownloads((current) =>
         current.map((download) =>
@@ -617,7 +746,7 @@ export function useDownloader(): UseDownloaderReturn {
         )
       )
     }
-  }, [trackTimeout])
+  }, [startFakeProgress, stopFakeProgress])
 
   const handleRemove = useCallback((id: string) => {
     const eventSource = eventSourcesRef.current[id]
@@ -625,6 +754,7 @@ export function useDownloader(): UseDownloaderReturn {
       eventSource.close()
       delete eventSourcesRef.current[id]
     }
+    stopFakeProgress(id)
 
     const fileId = fileIdsRef.current[id]
     if (fileId) {
@@ -633,13 +763,21 @@ export function useDownloader(): UseDownloaderReturn {
     }
 
     setDownloads((current) => current.filter((item) => item.id !== id))
-  }, [])
+  }, [stopFakeProgress])
 
   const handleClearAll = useCallback(() => {
     for (const eventSource of Object.values(eventSourcesRef.current)) {
       eventSource.close()
     }
     eventSourcesRef.current = {}
+    for (const timeout of Object.values(progressTimeoutsRef.current)) {
+      clearTrackedTimeout(timeout)
+    }
+    progressTimeoutsRef.current = {}
+    for (const interval of Object.values(progressIntervalsRef.current)) {
+      window.clearInterval(interval)
+    }
+    progressIntervalsRef.current = {}
 
     for (const fileId of Object.values(fileIdsRef.current)) {
       cleanupServerFile(fileId)
@@ -647,7 +785,7 @@ export function useDownloader(): UseDownloaderReturn {
     fileIdsRef.current = {}
 
     setDownloads([])
-  }, [])
+  }, [clearTrackedTimeout])
 
   const updateItemQuality = useCallback((id: string, quality: Quality) => {
     setDownloads((current) =>
@@ -728,10 +866,15 @@ export function useDownloader(): UseDownloaderReturn {
 
   useEffect(() => {
     return () => {
-      for (const interval of intervalsRef.current) {
+      for (const timeout of Object.values(progressTimeoutsRef.current)) {
+        window.clearTimeout(timeout)
+      }
+      progressTimeoutsRef.current = {}
+
+      for (const interval of Object.values(progressIntervalsRef.current)) {
         window.clearInterval(interval)
       }
-      intervalsRef.current = []
+      progressIntervalsRef.current = {}
 
       for (const timeout of timeoutsRef.current) {
         window.clearTimeout(timeout)
